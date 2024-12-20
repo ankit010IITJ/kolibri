@@ -2,7 +2,7 @@ import logging
 import signal
 import sys
 import traceback
-from pkgutil import find_loader
+from contextlib import contextmanager
 
 import click
 from django.core.management import execute_from_command_line
@@ -19,32 +19,35 @@ from kolibri.plugins.utils import disable_plugin
 from kolibri.plugins.utils import enable_plugin
 from kolibri.plugins.utils import iterate_plugins
 from kolibri.utils import server
+from kolibri.utils.compat import module_exists
 from kolibri.utils.conf import OPTIONS
 from kolibri.utils.debian_check import check_debian_user
 from kolibri.utils.main import initialize
+from kolibri.utils.main import set_django_settings_and_python_path
 from kolibri.utils.main import setup_logging
 
 
 logger = logging.getLogger(__name__)
 
 
-# We use Unicode strings for Python 2.7 throughout the codebase, so choosing
-# to silence these warnings.
-# Ref:
-# https://github.com/learningequality/kolibri/pull/5494#discussion_r318057385
-# https://github.com/PythonCharmers/python-future/issues/22
-click.disable_unicode_literals_warning = True
+@contextmanager
+def _patch_python_path(pythonpath):
+    if pythonpath:
+        sys.path.insert(0, pythonpath)
+    try:
+        yield
+    finally:
+        if pythonpath:
+            sys.path.remove(pythonpath)
 
 
 def validate_module(ctx, param, value):
     if value:
-        try:
-            if not find_loader(value):
-                raise ImportError
-        except ImportError:
-            raise click.BadParameter(
-                "{param} must be a valid python module import path"
-            )
+        with _patch_python_path(ctx.params.get("pythonpath")):
+            if not module_exists(value):
+                raise click.BadParameter(
+                    "{param} must be a valid python module import path"
+                )
     return value
 
 
@@ -72,8 +75,11 @@ settings_option = click.Option(
 
 pythonpath_option = click.Option(
     param_decls=["--pythonpath"],
-    type=click.Path(exists=True, file_okay=False),
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
     help="Add a path to the Python path",
+    # Set this to is_eager to ensure the option is set
+    # before we attempt to import the settings module
+    is_eager=True,
 )
 
 skip_update_option = click.Option(
@@ -91,11 +97,10 @@ noinput_option = click.Option(
 )
 
 
-base_params = [debug_option, debug_database_option, noinput_option]
+base_params = [debug_option, debug_database_option, noinput_option, pythonpath_option]
 
 initialize_params = base_params + [
     settings_option,
-    pythonpath_option,
     skip_update_option,
 ]
 
@@ -135,6 +140,8 @@ class KolibriCommand(click.Command):
             debug=ctx.params.get("debug"),
             debug_database=ctx.params.get("debug_database"),
         )
+        # We want to allow overriding the Python path for commands that don't require Django
+        set_django_settings_and_python_path(None, ctx.params.get("pythonpath"))
         for param in base_params:
             ctx.params.pop(param.name)
         return super(KolibriCommand, self).invoke(ctx)
@@ -163,6 +170,8 @@ class KolibriGroupCommand(click.Group):
             debug=ctx.params.get("debug"),
             debug_database=ctx.params.get("debug_database"),
         )
+        # We want to allow overriding the Python path for commands that don't require Django
+        set_django_settings_and_python_path(None, ctx.params.get("pythonpath"))
         for param in base_params:
             ctx.params.pop(param.name)
         return super(KolibriGroupCommand, self).invoke(ctx)
@@ -380,7 +389,7 @@ def plugin():
     pass
 
 
-@plugin.command(help="Enable Kolibri plugins")
+@plugin.command(cls=KolibriCommand, help="Enable Kolibri plugins")
 @click.argument("plugin_names", nargs=-1)
 @click.option("-d", "--default-plugins", default=False, is_flag=True)
 def enable(plugin_names, default_plugins):
@@ -400,7 +409,7 @@ def enable(plugin_names, default_plugins):
         raise exception
 
 
-@plugin.command(help="Disable Kolibri plugins")
+@plugin.command(cls=KolibriCommand, help="Disable Kolibri plugins")
 @click.argument("plugin_names", nargs=-1)
 @click.option("-a", "--all-plugins", default=False, is_flag=True)
 def disable(plugin_names, all_plugins):
@@ -420,7 +429,9 @@ def disable(plugin_names, all_plugins):
         raise exception
 
 
-@plugin.command(help="Set Kolibri plugins to be enabled and disable all others")
+@plugin.command(
+    cls=KolibriCommand, help="Set Kolibri plugins to be enabled and disable all others"
+)
 @click.argument("plugin_names", nargs=-1)
 @click.pass_context
 def apply(ctx, plugin_names):
@@ -442,7 +453,7 @@ def apply(ctx, plugin_names):
         raise exception
 
 
-@plugin.command(help="List all available Kolibri plugins")
+@plugin.command(cls=KolibriCommand, help="List all available Kolibri plugins")
 def list():
     plugins = [plugin for plugin in iterate_plugins()]
     lang = "en"
@@ -504,7 +515,10 @@ def _get_env_vars():
                     yield _format_env_var(envvar, v)
 
 
-@configure.command(help="List all available environment variables to configure Kolibri")
+@configure.command(
+    cls=KolibriCommand,
+    help="List all available environment variables to configure Kolibri",
+)
 def list_env():
     click.echo_via_pager(_get_env_vars())
 
