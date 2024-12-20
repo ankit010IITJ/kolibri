@@ -389,7 +389,7 @@ def plugin():
     pass
 
 
-@plugin.command(help="Enable Kolibri plugins")
+@plugin.command(cls=KolibriCommand, help="Enable Kolibri plugins")
 @click.argument("plugin_names", nargs=-1)
 @click.option("-d", "--default-plugins", default=False, is_flag=True)
 def enable(plugin_names, default_plugins):
@@ -409,7 +409,7 @@ def enable(plugin_names, default_plugins):
         raise exception
 
 
-@plugin.command(help="Disable Kolibri plugins")
+@plugin.command(cls=KolibriCommand, help="Disable Kolibri plugins")
 @click.argument("plugin_names", nargs=-1)
 @click.option("-a", "--all-plugins", default=False, is_flag=True)
 def disable(plugin_names, all_plugins):
@@ -429,7 +429,9 @@ def disable(plugin_names, all_plugins):
         raise exception
 
 
-@plugin.command(help="Set Kolibri plugins to be enabled and disable all others")
+@plugin.command(
+    cls=KolibriCommand, help="Set Kolibri plugins to be enabled and disable all others"
+)
 @click.argument("plugin_names", nargs=-1)
 @click.pass_context
 def apply(ctx, plugin_names):
@@ -451,7 +453,7 @@ def apply(ctx, plugin_names):
         raise exception
 
 
-@plugin.command(help="List all available Kolibri plugins")
+@plugin.command(cls=KolibriCommand, help="List all available Kolibri plugins")
 def list():
     plugins = [plugin for plugin in iterate_plugins()]
     lang = "en"
@@ -513,7 +515,10 @@ def _get_env_vars():
                     yield _format_env_var(envvar, v)
 
 
-@configure.command(help="List all available environment variables to configure Kolibri")
+@configure.command(
+    cls=KolibriCommand,
+    help="List all available environment variables to configure Kolibri",
+)
 def list_env():
     click.echo_via_pager(_get_env_vars())
 
