@@ -27,7 +27,7 @@
         >
           <KSwitch
             name="toggle-lesson-visibility"
-            label=""
+            :ariaLabelledBy="'lesson-visibility-label'"
             :checked="lesson.active"
             :value="lesson.active"
             @change="toggleModal(lesson)"
